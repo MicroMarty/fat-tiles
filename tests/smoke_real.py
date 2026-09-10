@@ -1,4 +1,5 @@
 """Real AWS DEM -> prepare -> fresh offline server -> three validated export formats."""
+import os
 import io
 import json
 from pathlib import Path
@@ -17,7 +18,7 @@ import terrain
 from server import Application, Server
 
 ROOT=Path(__file__).resolve().parents[1]
-URL='http://localhost:8765'
+URL=os.environ.get('TEST_URL','http://localhost:8765')
 
 
 def request(base,path,obj=None):
@@ -49,18 +50,17 @@ def main():
     plan=terrain.plan_region(payload)
     outputs=[]
     try:
-        for fmt in ['mbtiles','xyz','osmand']:
+        for fmt in ['mbtiles']:
             result=wait(base,request(base,'/api/jobs',payload|{'kind':'export','format':fmt}))
             path=ROOT/'exports'/result['filename'];blobs=[]
-            if fmt=='xyz':
-                with zipfile.ZipFile(path) as archive:
-                    assert archive.testzip() is None
-                    blobs=[(z,x,y,archive.read(f'{z}/{x}/{y}.png')) for z,x,y in plan['tiles']]
-            else:
-                with closing(sqlite3.connect(path)) as db:
-                    assert db.execute('pragma integrity_check').fetchone()[0]=='ok'
-                    if fmt=='mbtiles':blobs=[(z,x,2**z-1-y,blob) for z,x,y,blob in db.execute('select zoom_level,tile_column,tile_row,tile_data from tiles')]
-                    else:blobs=db.execute('select z,x,y,image from tiles').fetchall()
+            with closing(sqlite3.connect(path)) as db:
+                assert db.execute('pragma integrity_check').fetchone()[0]=='ok'
+                blobs=[(z,x,2**z-1-y,blob) for z,x,y,blob in db.execute('select zoom_level,tile_column,tile_row,tile_data from tiles')]
+            for z,x,y,blob in blobs:
+                with urllib.request.urlopen(f"{base}/tiles/{result['id']}/{z}/{x}/{y}.png") as response:
+                    assert response.headers['Access-Control-Allow-Origin']=='*'
+                    assert response.headers['Content-Type']=='image/png'
+                    assert response.read()==blob
             assert len(blobs)==estimate['count']
             selected=0
             for z,x,y,blob in blobs:
@@ -78,7 +78,7 @@ def main():
         report=dict(date=time.strftime('%Y-%m-%d %H:%M:%S'),estimate=estimate,offline_network_downloads=app.store.downloaded,exports=outputs)
         (ROOT/'test-results').mkdir(exist_ok=True)
         (ROOT/'test-results'/'real-data.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
-        print('OK : cache disque relu, trois formats corrects, zéro téléchargement hors ligne.',flush=True)
+        print('OK : cache disque relu, MBTiles et XYZ identiques, zéro téléchargement hors ligne.',flush=True)
     finally:
         local.shutdown();local.server_close();thread.join()
 

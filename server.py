@@ -16,7 +16,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-import zipfile
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -49,6 +48,7 @@ class TileStore:
         self.stripes = [threading.RLock() for _ in range(64)]
         self.lock = threading.RLock()
         self.metrics_cache = OrderedDict()
+        self.decoded_cache = OrderedDict()
         self.bytes = sum(p.stat().st_size for p in self.path.rglob("*.png"))
         self.downloaded = 0
 
@@ -87,6 +87,21 @@ class TileStore:
                     self.downloaded += 1
                 return data
 
+    def elevations(self,z,x,y):
+        key = (z,x,y)
+        with self.stripes[hash(("dem",z,x,y)) % len(self.stripes)]:
+            with self.lock:
+                if key in self.decoded_cache:
+                    self.decoded_cache.move_to_end(key)
+                    return self.decoded_cache[key]
+            values = terrain.decode_terrarium(self.tile("dem",z,x,y))
+            values.flags.writeable = False
+            with self.lock:
+                self.decoded_cache[key] = values
+                while len(self.decoded_cache) > 64:
+                    self.decoded_cache.popitem(last=False)
+            return values
+
     def metrics(self,z,x,y):
         key = (z,x,y)
         with self.lock:
@@ -94,7 +109,7 @@ class TileStore:
                 self.metrics_cache.move_to_end(key)
                 return self.metrics_cache[key]
         with self.compute:
-            padded = terrain.padded_tile(z,x,y, lambda zz,xx,yy: terrain.decode_terrarium(self.tile("dem",zz,xx,yy)))
+            padded = terrain.padded_tile(z,x,y, self.elevations)
             metrics = terrain.horn(padded, terrain.ground_resolution(z,y))
             metrics.flags.writeable = False
             with self.lock:
@@ -105,50 +120,65 @@ class TileStore:
             return metrics
 
 
-def write_export(path, plan, filters, store, fmt, composite, progress, cancelled):
-    """At most one RGBA tile is held during export; TMS rows only in MBTiles."""
+def write_export(path, plan, filters, store, fmt, composite, progress, cancelled, tiles_dir=None, workers=4):
+    """Bounded parallel PNG production; one SQLite writer; identical XYZ bytes."""
+    if fmt != "mbtiles":
+        raise ValueError("Seul le format MBTiles est disponible.")
     metadata = {"name":"Fat Tiles — sélection de terrain", "format":"png", "type":"baselayer" if composite else "overlay", "version":"1", "minzoom":str(plan["minzoom"]), "maxzoom":str(plan["maxzoom"]), "bounds":",".join(map(str,plan["bounds"])), "attribution":ATTRIBUTION, "description":"Masque dérivé du DEM Mapzen Terrarium. Horn, échelle sphérique corrigée par latitude. " + json.dumps(filters.__dict__, ensure_ascii=False), "center":f"{(plan['bounds'][0]+plan['bounds'][2])/2},{(plan['bounds'][1]+plan['bounds'][3])/2},{plan['minzoom']}"}
-    db, archive = None, None
+    def render(tile):
+        if cancelled():
+            raise Cancelled()
+        return tile, terrain.png_tile(store.metrics(*tile), filters, plan["bounds"], tile, composite)
+
+    db = sqlite3.connect(path)
     try:
-        if fmt == "xyz":
-            archive = zipfile.ZipFile(path,"w",compression=zipfile.ZIP_STORED)
-            archive.writestr("metadata.json",json.dumps({**metadata,"scheme":"xyz","bounds":plan["bounds"],"minzoom":plan["minzoom"],"maxzoom":plan["maxzoom"]},ensure_ascii=False,indent=2))
-            archive.writestr("ATTRIBUTION.txt",ATTRIBUTION)
-        else:
-            db = sqlite3.connect(path)
-            db.execute("PRAGMA journal_mode=DELETE")
-            db.execute("CREATE TABLE metadata (name TEXT, value TEXT)")
-            db.executemany("INSERT INTO metadata VALUES (?,?)",metadata.items())
-            if fmt == "mbtiles":
-                db.execute("CREATE TABLE tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB)")
-                db.execute("CREATE UNIQUE INDEX tile_index ON tiles (zoom_level,tile_column,tile_row)")
-            else:
-                db.execute("CREATE TABLE tiles (x INTEGER,y INTEGER,z INTEGER,s INTEGER DEFAULT 0,image BLOB,PRIMARY KEY(x,y,z,s))")
-                db.execute("CREATE TABLE info (minzoom INTEGER,maxzoom INTEGER,tilenumbering TEXT,tilesize INTEGER,ellipsoid INTEGER,inverted_y INTEGER,timecolumn TEXT,expireminutes INTEGER,url TEXT)")
-                db.execute("INSERT INTO info VALUES (?,?,?,?,?,?,?,?,?)",(plan["minzoom"],plan["maxzoom"],"simple",256,0,0,"no",0,""))
-        for index,(z,x,y) in enumerate(plan["tiles"]):
-            if cancelled():
-                raise Cancelled()
-            metrics = store.metrics(z,x,y)
-            image = terrain.png_tile(metrics,filters,plan["bounds"],(z,x,y),composite)
-            if archive:
-                archive.writestr(f"{z}/{x}/{y}.png",image)
-            elif fmt == "mbtiles":
-                db.execute("INSERT INTO tiles VALUES (?,?,?,?)",(z,x,2**z-1-y,image))
-            else:
-                db.execute("INSERT INTO tiles (x,y,z,image) VALUES (?,?,?,?)",(x,y,z,image))
-            if db and index % 50 == 0:
-                db.commit()
-            progress(index+1,plan["count"])
-        if db:
-            db.commit()
-            if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise RuntimeError("Le contrôle SQLite a échoué.")
+        db.execute("CREATE TABLE metadata (name TEXT, value TEXT)")
+        db.executemany("INSERT INTO metadata VALUES (?,?)", metadata.items())
+        db.execute("CREATE TABLE tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB)")
+        db.execute("CREATE UNIQUE INDEX tile_index ON tiles (zoom_level,tile_column,tile_row)")
+        source = iter(plan["tiles"])
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            pending = {pool.submit(render, tile) for tile in [next(source, None) for _ in range(workers * 2)] if tile is not None}
+            done = 0
+            try:
+                while pending:
+                    if cancelled():
+                        raise Cancelled()
+                    completed, pending = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                    for future in completed:
+                        (z,x,y), image = future.result()
+                        if cancelled():
+                            raise Cancelled()
+                        db.execute("INSERT INTO tiles VALUES (?,?,?,?)", (z,x,2**z-1-y,image))
+                        if tiles_dir is not None:
+                            tile_path = Path(tiles_dir) / str(z) / str(x) / f"{y}.png"
+                            tile_path.parent.mkdir(parents=True, exist_ok=True)
+                            tile_path.write_bytes(image)
+                        done += 1
+                        progress(done, plan["count"])
+                        tile = next(source, None)
+                        if tile is not None:
+                            pending.add(pool.submit(render, tile))
+            finally:
+                for future in pending:
+                    future.cancel()
+        db.commit()
+        if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise RuntimeError("Le contrôle SQLite a échoué.")
     finally:
-        if db:
-            db.close()
-        if archive:
-            archive.close()
+        db.close()
+
+
+def move_directory(source, destination):
+    """Retry transient Windows file-indexer locks during publication."""
+    for attempt in range(20):
+        try:
+            source.rename(destination)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(.1)
 
 
 class Application:
@@ -174,19 +204,25 @@ class Application:
         plan = terrain.plan_region(obj)
         kind = obj.get("kind","export")
         fmt = obj.get("format","mbtiles")
-        if kind not in ("export","prepare") or fmt not in ("mbtiles","xyz","osmand"):
+        if kind not in ("export","prepare") or fmt != "mbtiles":
             raise ValueError("Type de tâche ou format inconnu.")
+        session_id = obj.get("session_id")
+        if session_id is not None:
+            if kind != "export" or not isinstance(session_id,str) or not re.fullmatch(r"[a-f0-9]{32}",session_id):
+                raise ValueError("Identifiant de session invalide.")
+            if not (self.exports / session_id).is_dir():
+                raise ValueError("Session absente. Choisissez Nouveau lien.")
         filters = terrain.Filters.parse(obj.get("filters"))
         composite = obj.get("composite",False)
         if type(composite) is not bool:
             raise ValueError("Mode d’export invalide.")
-        if shutil.disk_usage(self.exports).free < plan["count"]*300000 + 300*1024**2:
+        if shutil.disk_usage(self.exports).free < plan["count"]*600000 + 300*1024**2:
             raise ValueError("Espace disque insuffisant pour cet export.")
         with self.lock:
             if any(j["state"] in ("queued","running") for j in self.jobs.values()):
                 raise ValueError("Une opération est déjà en cours. Attendez sa fin ou annulez-la.")
             jobid = uuid.uuid4().hex
-            job = {"id":jobid,"kind":kind,"state":"queued","done":0,"total":len(plan["sources"]) if kind == "prepare" else plan["count"],"message":"Préparation…","cancel":False}
+            job = {"session_id":session_id or jobid,"id":jobid,"kind":kind,"state":"queued","done":0,"total":len(plan["sources"]) if kind == "prepare" else plan["count"],"message":"Préparation…","cancel":False}
             self.jobs[jobid] = job
             while len(self.jobs) > 30:
                 self.jobs.popitem(last=False)
@@ -195,6 +231,8 @@ class Application:
 
     def run_job(self,job,obj,plan,filters,fmt,composite):
         temporary = None
+        staging = self.exports / ("." + job["id"] + ".part")
+        started = time.perf_counter()
         def progress(done,total):
             with self.lock:
                 job.update(done=done,total=total)
@@ -223,23 +261,43 @@ class Application:
                     tmp = self.regions_file.with_suffix(".part")
                     tmp.write_text(json.dumps(self.regions,ensure_ascii=False),encoding="utf-8")
                     tmp.replace(self.regions_file)
-                job["message"] = "Zone prête hors ligne aux zooms choisis. Fond Relief local disponible."
+                job["message"] = "Zone prête hors ligne aux zooms choisis. Le fond OpenTopoMap nécessite ses tuiles en cache."
             else:
-                extension = {"mbtiles":"mbtiles","xyz":"zip","osmand":"sqlitedb"}[fmt]
+                extension = "mbtiles"
                 name = f"fat-tiles-{time.strftime('%Y%m%d-%H%M%S')}-{job['id'][:6]}.{extension}"
                 destination = self.exports / name
                 temporary = destination.with_suffix(destination.suffix + ".part")
-                write_export(temporary,plan,filters,self.store,fmt,composite,progress,lambda:job["cancel"])
+                write_export(temporary,plan,filters,self.store,fmt,composite,progress,lambda:job["cancel"], tiles_dir=staging)
                 if job["cancel"]:
                     raise Cancelled()
-                temporary.replace(destination)
-                job.update(filename=name,url=f"/exports/{name}",size=destination.stat().st_size,message="Export terminé et vérifié.")
+                session_id = job.get("session_id",job["id"])
+                published = self.exports / session_id
+                backup = self.exports / ("." + job["id"] + ".backup")
+                # Readers use the same lock, so they never observe the rename gap.
+                with self.lock:
+                    had_previous = published.exists()
+                    if had_previous:
+                        move_directory(published,backup)
+                    try:
+                        move_directory(staging,published)
+                        temporary.replace(destination)
+                    except Exception:
+                        if published.exists():
+                            shutil.rmtree(published)
+                        if had_previous:
+                            move_directory(backup,published)
+                        raise
+                if backup.exists():
+                    shutil.rmtree(backup)
+                job.update(session_id=session_id,xyz_path=f"/tiles/{session_id}/{{z}}/{{x}}/{{y}}.png", elapsed_seconds=round(time.perf_counter()-started,2), filename=name,url=f"/exports/{name}",size=destination.stat().st_size,message="Export terminé et vérifié.")
             job["state"] = "done"
         except Cancelled:
             job.update(state="cancelled",message="Opération annulée. Les données déjà téléchargées restent en cache.")
         except Exception as exc:
             job.update(state="error",message=str(exc))
         finally:
+            if staging.exists():
+                shutil.rmtree(staging)
             if temporary:
                 temporary.unlink(missing_ok=True)
                 Path(str(temporary)+"-journal").unlink(missing_ok=True)
@@ -279,8 +337,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type",content_type)
         self.send_header("Content-Length",str(len(data)))
+        self.send_header("Access-Control-Allow-Origin","*")
         self.send_header("X-Content-Type-Options","nosniff")
-        self.send_header("Cache-Control","no-store" if content_type == "application/json" else "no-cache")
+        self.send_header("Cache-Control","no-cache, no-store, must-revalidate" if self.path.startswith("/tiles/") else ("no-store" if content_type == "application/json" else "no-cache"))
+        if self.path.startswith("/tiles/"):
+            self.send_header("Expires","0")
         if zipped:
             self.send_header("Content-Encoding","gzip")
             self.send_header("Vary","Accept-Encoding")
@@ -323,9 +384,21 @@ class Handler(BaseHTTPRequestHandler):
             with app.lock:
                 job = app.jobs.get(match[1])
                 return self.reply(200,dict(job)) if job else self.reply(404,{"error":"Opération introuvable."})
+        match = re.fullmatch(r"/tiles/([a-f0-9]{32})/(\d+)/(\d+)/(\d+)\.png", path)
+        if match:
+            session,z,x,y = match.groups()
+            z,x,y = int(z),int(x),int(y)
+            if not 0 <= z <= terrain.MAX_ZOOM or not 0 <= x < 2**z or not 0 <= y < 2**z:
+                return self.reply(404,{"error":"Tuile absente."})
+            tile = app.exports / session / str(z) / str(x) / f"{y}.png"
+            with app.lock:
+                data = tile.read_bytes() if tile.is_file() else None
+            if data is None:
+                return self.reply(404,{"error":"Tuile absente."})
+            return self.reply(200,data,"image/png")
         if path.startswith("/exports/"):
             name = path.removeprefix("/exports/")
-            if not re.fullmatch(r"fat-tiles-[\w-]+\.(mbtiles|zip|sqlitedb)",name):
+            if not re.fullmatch(r"fat-tiles-[\w-]+\.(mbtiles)",name):
                 return self.reply(404,{"error":"Fichier inconnu."})
             file = app.exports / name
             if not file.is_file():
@@ -346,6 +419,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404,{"error":"Page introuvable."})
         mime = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
         return self.reply(200,file.read_bytes(),mime,compressed=True)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
     def do_POST(self):
         try:

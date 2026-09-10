@@ -159,22 +159,49 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(meta['format'],'png');self.assertEqual(meta['type'],'overlay');self.assertIn('Mapzen',meta['attribution'])
             rows=db.execute('select zoom_level,tile_column,tile_row,tile_data from tiles').fetchall()
             self.assertEqual(len(rows),5)
-            self.assertEqual([(z,x,2**z-1-y) for z,x,y,_ in rows],self.plan['tiles'])
+            self.assertEqual(sorted((z,x,2**z-1-y) for z,x,y,_ in rows),sorted(self.plan['tiles']))
             for *_,blob in rows:
                 img=Image.open(io.BytesIO(blob));self.assertEqual(img.size,(256,256));self.assertEqual(img.mode,'RGBA');self.assertEqual(img.getpixel((100,100)),(38,132,255,175))
         self.assertEqual(progress[-1],(5,5))
 
-    def test_xyz_archive_and_osmand_direct_numbering(self):
-        path=self.root/'test.zip'
-        write_export(path,self.plan,filters(),FakeStore(),'xyz',True,lambda *_:None,lambda:False)
-        with zipfile.ZipFile(path) as archive:
-            self.assertIsNone(archive.testzip());meta=json.loads(archive.read('metadata.json'));self.assertEqual(meta['scheme'],'xyz')
-            for z,x,y in self.plan['tiles']:self.assertIn(f'{z}/{x}/{y}.png',archive.namelist())
-        path=self.root/'test.sqlitedb'
-        write_export(path,self.plan,filters(),FakeStore(),'osmand',False,lambda *_:None,lambda:False)
+    def test_xyz_identical_to_mbtiles(self):
+        path=self.root/'test.mbtiles';tiles=self.root/'xyz'
+        write_export(path,self.plan,filters(),FakeStore(),'mbtiles',False,lambda *_:None,lambda:False,tiles_dir=tiles)
         with closing(sqlite3.connect(path)) as db:
-            self.assertEqual(db.execute('select tilenumbering,inverted_y,minzoom,maxzoom from info').fetchone(),('simple',0,4,5))
-            self.assertEqual(set(db.execute('select z,x,y from tiles')),set(self.plan['tiles']))
+            for z,x,row,blob in db.execute('SELECT * FROM tiles'):
+                self.assertEqual((tiles/str(z)/str(x)/f'{2**z-1-row}.png').read_bytes(),blob)
+        for fmt in ('xyz','osmand'):
+            with self.assertRaises(ValueError):
+                write_export(self.root/fmt,self.plan,filters(),FakeStore(),fmt,False,lambda *_:None,lambda:False)
+
+    def test_replace_session_and_keep_new_sessions(self):
+        app=Application(self.root/'data',self.root/'exports',offline=True)
+        obj=dict(bounds=bounds_of_tile(4,8,6),minzoom=4,maxzoom=4)
+        def run(jobid,session,color):
+            job={'id':jobid,'session_id':session,'kind':'export','cancel':False}
+            app.run_job(job,obj,t.plan_region(obj),filters(color=color),'mbtiles',False)
+            self.assertEqual(job['state'],'done')
+            return job
+        with patch.object(app.store,'metrics',FakeStore().metrics):
+            first=run('a'*32,'a'*32,'#2684ff')
+            tile=app.exports/('a'*32)/'4/8/6.png';before=tile.read_bytes()
+            stale=tile.parent/'7.png';stale.write_bytes(before)
+            updated=run('b'*32,'a'*32,'#ec4899')
+            self.assertEqual(first['xyz_path'],updated['xyz_path'])
+            self.assertNotEqual(tile.read_bytes(),before)
+            self.assertFalse(stale.exists())
+            after=tile.read_bytes()
+            new=run('c'*32,'c'*32,'#22a56b')
+            self.assertNotEqual(new['xyz_path'],updated['xyz_path'])
+            self.assertEqual(tile.read_bytes(),after)
+        with patch.object(app.store,'metrics',side_effect=RuntimeError('failed')):
+            job={'id':'d'*32,'session_id':'a'*32,'kind':'export','cancel':False}
+            app.run_job(job,obj,t.plan_region(obj),filters(),'mbtiles',False)
+            self.assertEqual(job['state'],'error')
+            self.assertEqual(tile.read_bytes(),after)
+        for session in ('../escape','e'*32,123):
+            with self.assertRaises(ValueError):
+                app.start_job(obj|{'session_id':session})
 
     def test_export_clip_transparency_and_no_matches(self):
         m=FakeStore().metrics(4,8,6);bounds=bounds_of_tile(4,8,6);bounds[2]=(bounds[0]+bounds[2])/2
@@ -189,7 +216,7 @@ class ExportTests(unittest.TestCase):
     def test_custom_color_matches_all_export_formats(self):
         f=filters(color='#eC4899')
         self.assertEqual(f.color,'#ec4899')
-        for fmt in ('mbtiles','xyz','osmand'):
+        for fmt in ('mbtiles',):
             path=self.root/f'custom-{fmt}'
             write_export(path,self.plan,f,FakeStore(),fmt,False,lambda *_:None,lambda:False)
             if fmt=='xyz':
@@ -241,6 +268,27 @@ class HttpTests(unittest.TestCase):
             with self.request(path) as response:self.assertEqual(response.status,200)
         with self.request('/') as response:
             html=response.read().decode();self.assertNotIn('src="https://',html)
+    def test_xyz_http_cors_persistence_and_missing(self):
+        obj=dict(bounds=bounds_of_tile(4,8,6),minzoom=4,maxzoom=4)
+        job={'id':'b'*32,'kind':'export','cancel':False}
+        with patch.object(self.app.store,'metrics',FakeStore().metrics):
+            self.app.run_job(job,obj,t.plan_region(obj),filters(),'mbtiles',False)
+        self.assertEqual(job['state'],'done')
+        self.app.jobs.clear()
+        with self.request(job['xyz_path'].replace('{z}','4').replace('{x}','8').replace('{y}','6')) as response:
+            self.assertEqual(response.headers['Access-Control-Allow-Origin'],'*')
+            self.assertEqual(response.headers['Content-Type'],'image/png')
+            self.assertEqual(response.headers['Cache-Control'],'no-cache, no-store, must-revalidate')
+            self.assertEqual(response.headers['Expires'],'0')
+            image=Image.open(io.BytesIO(response.read()))
+            self.assertEqual(image.size,(256,256))
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.request('/tiles/'+'b'*32+'/4/8/7.png')
+        self.assertEqual(ctx.exception.code,404)
+        request=urllib.request.Request(self.url+'/tiles/'+'b'*32+'/4/8/6.png',method='OPTIONS')
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(response.headers['Access-Control-Allow-Origin'],'*')
+
     def test_missing_tile_reports_failure(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:self.request('/api/terrain/4/8/6')
         self.assertEqual(ctx.exception.code,503)

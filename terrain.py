@@ -174,7 +174,7 @@ def png_tile(metrics, filters=None, bounds=None, coords=None, composite=False):
     if bounds is not None:
         rgba[~clip_mask(*coords, bounds), 3] = 0
     out = io.BytesIO()
-    Image.fromarray(rgba).save(out, format="PNG")
+    Image.fromarray(rgba).save(out, format="PNG", compress_level=1)
     return out.getvalue()
 
 

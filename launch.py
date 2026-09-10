@@ -26,8 +26,8 @@ def main():
         subprocess.check_call([sys.executable,"-m","pip","install","-r",str(ROOT / "requirements.txt")])
     from server import Application, Server, local_addresses
     parser = argparse.ArgumentParser(description="Fat Tiles — atelier de terrain local")
-    parser.add_argument("--port",type=int,default=8765)
-    parser.add_argument("--host",default="0.0.0.0")
+    parser.add_argument("--port",type=int,default=int(os.environ.get("PORT", "8765")))
+    parser.add_argument("--host",default=os.environ.get("HOST", "0.0.0.0"))
     parser.add_argument("--no-browser",action="store_true")
     parser.add_argument("--offline",action="store_true")
     args = parser.parse_args()

@@ -1,3 +1,24 @@
+## Validation rose et ré-export — 10 septembre 2026
+
+27 tests Python et 5 tests JavaScript réussis. Tests ajoutés : remplacement sur disque à session constante, retrait d’une tuile obsolète, conservation de l’ancienne session lors d’un nouveau lien, conservation des anciennes tuiles sur erreur, rejet des identifiants invalides, en-têtes anti-cache exacts et Expires 0.
+
+Le test Edge `tests/validate_reexport.cjs` couvre les événements tactiles émulés, clic et clavier sur la rose, la conservation des coordonnées et du même objet rectangle après modification du slider, et les deux ré-exports via l’interface. Pas de test sur téléphone physique ni de pilotage de Maps Viewer.
+
+# Validation de la refonte — 10 septembre 2026
+
+- 26 tests Python et 5 tests JavaScript réussis : calcul SIG, filtres, découpe, couleurs, MBTiles TMS, égalité exacte des PNG XYZ/MBTiles, CORS, MIME, 404, annulation et absence de publication sur erreur.
+- Export réel vérifié sur 4 tuiles alpines : 5 226 pixels sélectionnés, résultat comparé aux calculs du DEM, zéro téléchargement en mode hors ligne. Les PNG reçus via HTTP sont identiques aux blobs MBTiles.
+- Navigateur Edge automatisé : 390 × 844, 320 × 568, 844 × 390 et 1440 × 900, sans débordement horizontal. À 390 pixels : carte de 756 pixels tiroir replié, 473 pixels tiroir ouvert ; en-tête absent, recherche absente, puces fonctionnelles et génération réelle XYZ/MBTiles. Validation sur émulation tactile, pas sur un téléphone physique.
+- Leaflet fourni sans extension de rotation/inclinaison : aucun gestionnaire bearing/pitch/rotation tactile. Le zoom tactile est conservé.
+- Benchmark sur 96 tuiles DEM réelles en cache, trois passages, sans réseau. Avant optimisation du décodage/compression : séquentiel 6,573 / 6,422 / 6,361 s. Pipeline final à quatre travailleurs : 1,518 / 1,517 / 1,492 s, soit environ **4,28× plus rapide (−77 %)**. Sur le pipeline final seul, un travailleur prend 2,603 / 2,443 / 2,526 s : la parallélisation apporte environ 1,67×, le reste vient du cache DEM décodé et de la compression PNG niveau 1. Benchmark MBTiles ; la copie sur disque XYZ ajoute un coût. Le téléchargement initial reste tributaire du réseau.
+- Pas de déploiement public ni de pilotage de Maps Viewer : contrat XYZ HTTP testé. Un lecteur distant exige une adresse accessible ; un lecteur HTTPS exige des tuiles HTTPS.
+
+Les scripts reproductibles sont dans tests/. Les PNG de contrôle sont mobile-validation.png et export-validation.png.
+
+---
+
+## Documentation de validation antérieure (formats historiques remplacés)
+
 # Validation de Fat Tiles
 
 Vérification effectuée le **10 septembre 2026** sur Windows, Python 3.12.2, NumPy 2.3.5, Pillow 12.0.0 et Node.js 24.19.0.
