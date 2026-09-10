@@ -1,0 +1,11 @@
+__pycache__/
+.venv/
+data/
+exports/
+test-results/
+*.log
+.build-venv/
+build/
+dist/
+release/
+*.spec

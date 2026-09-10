@@ -1,0 +1,11 @@
+.git
+.venv
+data
+exports
+test-results
+__pycache__
+tests
+.build-venv
+release
+dist
+build

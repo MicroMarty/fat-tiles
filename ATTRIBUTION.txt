@@ -1,0 +1,20 @@
+Fat Tiles — terrain dérivé : calcul de pente, d’exposition, relief ombré et masque.
+Source : Mapzen / Tilezen Terrain Tiles, hébergées par AWS Open Data.
+https://github.com/tilezen/joerd/blob/master/docs/attribution.md
+
+ArcticDEM: DEM(s) created from DigitalGlobe, Inc., imagery, funded under National Science Foundation awards 1043681, 1559691, and 1542736.
+Australia: © Commonwealth of Australia (Geoscience Australia) 2017.
+Austria: © offene Daten Österreichs – Digitales Geländemodell (DGM) Österreich.
+Canada: Contains information licensed under the Open Government Licence – Canada.
+Europe: Produced using Copernicus data and information funded by the European Union – EU-DEM layers.
+Global ETOPO1: U.S. National Oceanic and Atmospheric Administration; DOC/NOAA/NESDIS/NCEI.
+Mexico: INEGI, Continental relief, 2016.
+New Zealand: Copyright 2011 Crown copyright (c) Land Information New Zealand and the New Zealand Government (All rights reserved).
+Norway: © Kartverket.
+United Kingdom: © Environment Agency copyright and/or database right 2015. All rights reserved.
+United States 3DEP and global GMTED2010 and SRTM: courtesy of the U.S. Geological Survey.
+
+Fond OpenTopoMap (consultation, absent des exports) : données © contributeurs OpenStreetMap, SRTM ; style © OpenTopoMap, CC-BY-SA.
+https://opentopomap.org/about
+
+Leaflet 1.9.4 : BSD-2-Clause, licence dans static/vendor/LEAFLET-LICENSE.txt.

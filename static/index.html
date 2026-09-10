@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#26362b"><meta name="description" content="Explorez le relief, combinez vos critères et emportez votre carte hors ligne.">
+  <title>Fat Tiles — Atelier de terrain</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/leaflet.css"><link rel="stylesheet" href="/style.css">
+  <script src="/vendor/leaflet.js" defer></script><script src="/filters.js" defer></script><script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Fat Tiles, accueil"><svg viewBox="0 0 38 38" fill="none" aria-hidden="true"><path d="M3 28 14 9l7 12 4-7 10 14H3Z" stroke="currentColor" stroke-width="2.2"/><path d="m10 17 4 4 4-4M3 33h32" stroke="currentColor" stroke-width="2.2"/></svg><strong>fat tiles<span class="brand-dot">.</span></strong></a>
+    <span class="tagline">LE TERRAIN, SELON VOS CRITÈRES</span>
+    <div class="header-actions"><span class="local-badge"><i></i><span id="mode-label">Sur votre PC</span></span><button class="icon-button" id="help-button" aria-label="Aide et accès smartphone">?</button></div>
+  </header>
+  <main class="workspace">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-heading"><div><span class="eyebrow">ATELIER CARTOGRAPHIQUE</span><h1>Explorez le relief.</h1></div><button class="mobile-toggle" id="mobile-toggle" aria-label="Réduire les réglages" aria-expanded="true">⌄</button></div>
+      <nav class="tabs" aria-label="Outils"><button class="tab active" data-tab="filters" aria-pressed="true">Filtres</button><button class="tab" data-tab="export" aria-pressed="false">Exporter <span class="tiny-dot" id="zone-dot" hidden></span></button><button class="tab" data-tab="offline" aria-pressed="false">Hors ligne</button></nav>
+      <div class="panel-scroll">
+        <section id="panel-filters" class="panel">
+          <div class="panel-intro"><p>Votre terrain idéal,<br><strong>en quelques réglages.</strong></p><button class="text-button" id="reset-filters">Réinitialiser</button></div>
+          <section class="filter-group" aria-labelledby="altitude-title">
+            <div class="group-heading"><h2 id="altitude-title"><span class="group-icon">△</span> Altitude</h2><span class="unit">MÈTRES</span></div>
+            <div class="range-values"><label><span>Minimum</span><div><input id="alt-min-number" aria-label="Altitude minimale en mètres" type="number" min="0" max="8848.86" step="0.01" value="0"><b>m</b></div></label><span class="range-dash">—</span><label><span>Maximum</span><div><input id="alt-max-number" aria-label="Altitude maximale en mètres" type="number" min="0" max="8848.86" step="0.01" value="8848.86"><b>m</b></div></label></div>
+            <div class="dual-range" id="alt-track"><div class="range-line"></div><input id="alt-min" type="range" min="0" max="8848.86" value="0" step="0.01" aria-label="Curseur altitude minimale"><input id="alt-max" type="range" min="0" max="8848.86" value="8848.86" step="0.01" aria-label="Curseur altitude maximale"></div>
+            <div class="range-labels"><span>0 m · Mer</span><span>8 848,86 m · Everest</span></div>
+          </section>
+          <section class="filter-group" aria-labelledby="slope-title">
+            <div class="group-heading"><h2 id="slope-title"><span class="group-icon">∠</span> Pente</h2><span class="unit">DEGRÉS</span></div>
+            <div class="range-values"><label><span>Minimum</span><div><input id="slope-min-number" aria-label="Pente minimale en degrés" type="number" min="0" max="90" step="0.1" value="25"><b>°</b></div></label><span class="range-dash">—</span><label><span>Maximum</span><div><input id="slope-max-number" aria-label="Pente maximale en degrés" type="number" min="0" max="90" step="0.1" value="55"><b>°</b></div></label></div>
+            <div class="dual-range" id="slope-track"><div class="range-line"></div><input id="slope-min" type="range" min="0" max="90" value="25" step="0.1" aria-label="Curseur pente minimale"><input id="slope-max" type="range" min="0" max="90" value="55" step="0.1" aria-label="Curseur pente maximale"></div>
+            <div class="range-labels"><span>0° · Plat</span><span>90° · Vertical</span></div>
+          </section>
+          <section class="filter-group aspects-group" aria-labelledby="aspect-title">
+            <div class="group-heading"><h2 id="aspect-title"><span class="group-icon">↗</span> Exposition</h2><button class="text-button" id="all-aspects">Tout désélectionner</button></div>
+            <p class="microcopy">Combinez les versants qui vous intéressent.</p>
+            <svg class="compass-rose" viewBox="0 0 260 260" role="group" aria-label="Rose des vents : sélection multiple des expositions">
+              <circle class="compass-ring" cx="130" cy="130" r="116"/>
+              <g data-aspect="0" role="button" tabindex="0" aria-label="Nord" aria-pressed="true"><title>Nord : 337,5° à 22,5°</title><path d="M 93.088,33.841 A 103 103 0 0 1 166.912,33.841 L 142.543,97.325 A 35 35 0 0 0 117.457,97.325 Z"/><text x="130.000" y="53.000" dy=".35em">N</text></g>
+              <g data-aspect="1" role="button" tabindex="0" aria-label="Nord-Est" aria-pressed="true"><title>Nord-Est</title><path d="M 171.894,35.905 A 103 103 0 0 1 224.095,88.106 L 161.974,115.764 A 35 35 0 0 0 144.236,98.026 Z"/><text x="184.447" y="75.553" dy=".35em">NE</text></g>
+              <g data-aspect="2" role="button" tabindex="0" aria-label="Est" aria-pressed="true"><title>Est</title><path d="M 226.159,93.088 A 103 103 0 0 1 226.159,166.912 L 162.675,142.543 A 35 35 0 0 0 162.675,117.457 Z"/><text x="207.000" y="130.000" dy=".35em">E</text></g>
+              <g data-aspect="3" role="button" tabindex="0" aria-label="Sud-Est" aria-pressed="true"><title>Sud-Est</title><path d="M 224.095,171.894 A 103 103 0 0 1 171.894,224.095 L 144.236,161.974 A 35 35 0 0 0 161.974,144.236 Z"/><text x="184.447" y="184.447" dy=".35em">SE</text></g>
+              <g data-aspect="4" role="button" tabindex="0" aria-label="Sud" aria-pressed="true"><title>Sud</title><path d="M 166.912,226.159 A 103 103 0 0 1 93.088,226.159 L 117.457,162.675 A 35 35 0 0 0 142.543,162.675 Z"/><text x="130.000" y="207.000" dy=".35em">S</text></g>
+              <g data-aspect="5" role="button" tabindex="0" aria-label="Sud-Ouest" aria-pressed="true"><title>Sud-Ouest</title><path d="M 88.106,224.095 A 103 103 0 0 1 35.905,171.894 L 98.026,144.236 A 35 35 0 0 0 115.764,161.974 Z"/><text x="75.553" y="184.447" dy=".35em">SO</text></g>
+              <g data-aspect="6" role="button" tabindex="0" aria-label="Ouest" aria-pressed="true"><title>Ouest</title><path d="M 33.841,166.912 A 103 103 0 0 1 33.841,93.088 L 97.325,117.457 A 35 35 0 0 0 97.325,142.543 Z"/><text x="53.000" y="130.000" dy=".35em">O</text></g>
+              <g data-aspect="7" role="button" tabindex="0" aria-label="Nord-Ouest" aria-pressed="true"><title>Nord-Ouest</title><path d="M 35.905,88.106 A 103 103 0 0 1 88.106,35.905 L 115.764,98.026 A 35 35 0 0 0 98.026,115.764 Z"/><text x="75.553" y="75.553" dy=".35em">NO</text></g>
+              <g class="compass-center" aria-hidden="true"><path d="M130 101 137 123 159 130 137 137 130 159 123 137 101 130 123 123Z"/><path class="compass-north" d="M130 101 137 123 130 130Z"/><circle cx="130" cy="130" r="3"/></g>
+            </svg>
+            <p class="compass-caption" id="compass-caption">8 expositions sélectionnées</p>
+            <label class="checkbox-row"><input type="checkbox" id="include-flats" checked> Inclure les terrains plats, sans exposition</label>
+          </section>
+          <div class="mask-style">
+            <div class="group-heading"><h2>Couleur du masque</h2><span class="unit">APERÇU &amp; EXPORT</span></div>
+            <div class="color-controls"><input type="color" id="mask-color" value="#2684ff" aria-label="Choisir la couleur du masque"><label class="hex-field"><span>Code couleur</span><input id="mask-color-hex" type="text" value="#2684FF" maxlength="7" spellcheck="false" pattern="#[0-9a-fA-F]{6}" aria-label="Code hexadécimal du masque"></label></div>
+            <div class="color-swatches" role="group" aria-label="Couleurs prédéfinies"><button data-mask-color="#2684ff" style="--swatch:#2684ff" aria-label="Masque bleu" aria-pressed="true"></button><button data-mask-color="#8854d0" style="--swatch:#8854d0" aria-label="Masque violet" aria-pressed="false"></button><button data-mask-color="#ec4899" style="--swatch:#ec4899" aria-label="Masque rose" aria-pressed="false"></button><button data-mask-color="#f97316" style="--swatch:#f97316" aria-label="Masque orange" aria-pressed="false"></button><button data-mask-color="#e8b923" style="--swatch:#e8b923" aria-label="Masque jaune" aria-pressed="false"></button><button data-mask-color="#22a56b" style="--swatch:#22a56b" aria-label="Masque vert" aria-pressed="false"></button></div>
+          </div>
+          <div class="opacity-row"><label for="opacity">Opacité du masque</label><input id="opacity" type="range" min="0" max="100" value="69"><output id="opacity-value">69 %</output></div>
+          <div class="hint"><span class="hint-swatch"></span><p>Les zones colorées répondent à <strong>tous vos critères</strong>. Les orientations se combinent entre elles.</p></div>
+        </section>
+        <section id="panel-export" class="panel" hidden>
+          <div class="section-title"><span class="eyebrow">VOTRE CARTE À EMPORTER</span><h2>Du relief à votre poche.</h2><p>Délimitez une zone et créez votre fichier hors ligne.</p></div>
+          <div class="step-heading"><span>1</span><h3>Définir la zone</h3></div>
+          <button class="secondary-button full" id="draw-zone">⌗ &nbsp; Dessiner un rectangle</button>
+          <div class="inline-actions"><button class="text-button" id="use-view">Utiliser la vue actuelle</button><button class="text-button" id="clear-zone" disabled>Effacer</button></div>
+          <div id="zone-summary" class="zone-summary">Aucune zone sélectionnée</div>
+          <details class="coordinates"><summary>Saisir les coordonnées</summary><div class="coordinate-grid"><label>Ouest<input id="bbox-west" type="number" step="any" min="-180" max="180"></label><label>Est<input id="bbox-east" type="number" step="any" min="-180" max="180"></label><label>Sud<input id="bbox-south" type="number" step="any" min="-85.051128" max="85.051128"></label><label>Nord<input id="bbox-north" type="number" step="any" min="-85.051128" max="85.051128"></label></div><button class="text-button" id="apply-bounds">Appliquer les coordonnées</button></details>
+          <div class="step-heading"><span>2</span><h3>Choisir le niveau de détail</h3></div>
+          <div class="select-pair"><label>Zoom minimum<select id="zoom-min" aria-label="Zoom minimum à exporter"></select></label><label>Zoom maximum<select id="zoom-max" aria-label="Zoom maximum à exporter"></select></label></div>
+          <p class="microcopy">Un zoom de plus ≈ quatre fois plus de tuiles.<br>Le détail réel dépend du DEM disponible.</p>
+          <div class="estimate-card" id="estimate-card"><div><strong id="tile-count">—</strong><span>tuiles à exporter</span></div><span class="estimate-icon">▦</span><p id="estimate-detail">Sélectionnez une zone pour obtenir l’estimation.</p></div>
+          <div class="step-heading"><span>3</span><h3>Préparer le fichier</h3></div>
+          <label class="field-label" for="export-format">Format</label><select id="export-format"><option value="mbtiles">MBTiles · QGIS / lecteurs compatibles</option><option value="osmand">SQLiteDB · OsmAnd</option><option value="xyz">Archive ZIP · tuiles XYZ</option></select>
+          <label class="field-label" for="export-content">Contenu</label><select id="export-content"><option value="mask">Masque transparent</option><option value="relief">Relief local + masque</option></select>
+          <p class="microcopy">Le fichier fige les filtres actuels. Le fond OpenTopoMap n’est pas inclus.</p>
+          <button class="primary-button full" id="export-button" disabled>↓ &nbsp; Générer et télécharger</button>
+          <p class="microcopy centered">Écriture sur disque · Maximum 2 000 tuiles</p>
+        </section>
+        <section id="panel-offline" class="panel" hidden>
+          <div class="section-title"><span class="eyebrow">PRÊT POUR LA DÉCONNEXION</span><h2>Gardez le terrain avec vous.</h2><p>Téléchargez une zone une fois, puis ajustez vos filtres sans Internet.</p></div>
+          <div class="offline-note"><strong>PC et téléphone, même Wi-Fi.</strong><p>Le PC garde les données et doit rester allumé pour utiliser cette interface depuis le téléphone. Sur le terrain sans PC, ouvrez le fichier exporté dans votre application cartographique.</p></div>
+          <button class="secondary-button full" id="offline-zone">⌗ &nbsp; Choisir la zone et les zooms</button>
+          <p id="offline-estimate" class="microcopy">La zone et les zooms de l’onglet Exporter seront utilisés.</p>
+          <button class="primary-button full" id="prepare-button" disabled>↓ &nbsp; Télécharger le terrain</button>
+          <p class="microcopy">Comprend les tuiles voisines nécessaires aux calculs et le fond Relief local. Seuls les zooms choisis sont garantis hors ligne.</p>
+          <div class="offline-switch"><div><strong>Mode sans Internet</strong><span>Aucune requête vers les sources</span></div><label class="switch"><input id="offline-mode" type="checkbox" aria-label="Mode sans Internet"><span></span></label></div>
+          <div class="cache-heading"><h3>Zones téléchargées</h3><span id="cache-size">0 Mo</span></div><div id="saved-regions"><p class="empty-state">Votre prochaine exploration commence ici.<br>Aucune zone téléchargée pour le moment.</p></div>
+          <button class="text-button" id="retry-tiles">↻ Recharger les tuiles de la vue</button>
+        </section>
+        <div id="job-box" class="job-box" hidden aria-live="polite"><div class="job-heading"><strong id="job-title">Opération en cours</strong><button class="text-button" id="cancel-job">Annuler</button></div><progress id="job-progress" max="1" value="0"></progress><p id="job-message"></p><a id="download-link" class="primary-button full" hidden>Télécharger le fichier</a></div>
+      </div>
+      <footer class="sidebar-footer"><span><i class="live-dot"></i> Aperçu interactif</span><button id="to-export" class="text-button">Exporter la sélection ↗</button></footer>
+    </aside>
+    <section class="map-workspace" aria-label="Carte interactive du terrain">
+      <div id="map"></div>
+      <form class="map-search" id="location-form"><span aria-hidden="true">⌕</span><input id="location" aria-label="Lieu proposé ou latitude, longitude" placeholder="Lieu proposé ou lat, lon" list="places" value="Chamonix, Alpes" autocomplete="off"><datalist id="places"><option value="Chamonix, Alpes"><option value="Namur, Belgique"><option value="Gavarnie, Pyrénées"><option value="Cortina, Dolomites"><option value="Marrakech, Atlas"><option value="Kathmandu, Himalaya"><option value="Reykjavík, Islande"><option value="Patagonia, El Chaltén"></datalist><button aria-label="Aller au lieu" type="submit">↵</button></form>
+      <div class="map-top-right"><select id="basemap" aria-label="Fond de carte"><option value="topo">▤ &nbsp; OpenTopoMap</option><option value="relief">◈ &nbsp; Relief local</option></select></div>
+      <div class="map-controls"><button id="north-button" title="Carte orientée au Nord" aria-label="Carte orientée au Nord"><span class="north-arrow">↑</span><small>N</small></button><div class="zoom-buttons"><button id="zoom-in" aria-label="Zoom avant">+</button><button id="zoom-out" aria-label="Zoom arrière">−</button></div><button id="map-draw" title="Dessiner la zone d’export" aria-label="Dessiner la zone d’export">⌗</button></div>
+      <div class="drawing-banner" id="drawing-banner" hidden><span id="drawing-text">Touchez le premier coin du rectangle.</span><button id="cancel-draw">Annuler</button></div>
+      <div class="map-error" id="map-error" hidden role="status"><span id="map-error-text"></span><button id="map-retry">Réessayer</button></div>
+      <div class="map-legend"><div><span class="legend-swatch"></span><strong>Terrain sélectionné</strong><label class="switch small"><input type="checkbox" id="show-mask" checked aria-label="Afficher le masque"><span></span></label></div><p id="filter-summary">1 000–4 800 m · 25–55° · 8 expositions</p></div>
+      <div class="map-status" id="map-status"><i class="live-dot"></i><span id="tile-status">Chargement du relief…</span><span class="status-divider">|</span><span id="zoom-label">Z11</span></div>
+      <div class="probe" id="probe" hidden><strong id="probe-elevation"></strong><span id="probe-detail"></span><button id="close-probe" aria-label="Fermer la mesure">×</button></div>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <dialog id="help-dialog"><button class="dialog-close" id="close-help" aria-label="Fermer l’aide">×</button><span class="eyebrow">BIENVENUE DANS FAT TILES</span><h2>Une carte qui vous ressemble.</h2><ol><li>Déplacez la carte et combinez altitude, pente et expositions.</li><li>Dans <strong>Exporter</strong>, dessinez un rectangle en touchant deux coins opposés.</li><li>Choisissez les zooms, puis téléchargez votre MBTiles, SQLiteDB ou ZIP.</li></ol><h3>Depuis votre téléphone</h3><p>Gardez le PC allumé et connectez les deux appareils au même Wi-Fi. Ouvrez l’une de ces adresses :</p><div id="phone-urls"></div><p>Si Windows le demande, autorisez Python sur votre réseau privé. Aucun accès Internet n’est nécessaire après le téléchargement du terrain.</p><h3>Comprendre la sélection</h3><p>Altitude et pente : bornes incluses. Chaque exposition couvre 45°, centrés sur son point cardinal. Le Nord traverse bien 0°/360°. Les terrains plats ont un choix séparé. Une donnée manquante n’est jamais sélectionnée.</p><p>Le filtre de Horn utilise les 8 pixels voisins ; l’échelle métrique est corrigée à chaque ligne par la latitude. La résolution et les mesures varient avec le zoom et la qualité du DEM source.</p><p><a href="/ATTRIBUTION.txt" target="_blank" rel="noopener">Sources et attributions ↗</a></p></dialog>
+</body>
+</html>
